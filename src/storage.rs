@@ -66,7 +66,13 @@ where
 
 #[derive(ShaderType)]
 pub struct Globals {
-    pub time: f32,
+    pub dt: f32,
+}
+
+#[derive(ShaderType)]
+pub struct Agent {
+    pub position: glam::f32::Vec2,
+    pub velocity: glam::f32::Vec2,
 }
 
 #[repr(C)]

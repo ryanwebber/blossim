@@ -8,7 +8,7 @@ pub struct RenderPipeline {
 impl RenderPipeline {
     pub fn new(device: &wgpu::Device, target_format: wgpu::TextureFormat) -> Self {
         let module = {
-            let descriptor = wgpu::include_wgsl!("render.wgsl");
+            let descriptor = wgpu::include_wgsl!("../shader/render.wgsl");
             device.create_shader_module(descriptor)
         };
 

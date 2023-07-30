@@ -1,15 +1,25 @@
+use std::time::Instant;
+
 use crate::app;
 
 pub struct Interface {
     info_pane: InfoPane,
 }
 
-pub struct InfoPane;
+pub struct InfoPane {
+    fps: f32,
+    checkpoint_fps_frame: usize,
+    checkpoint_fps_time: Instant,
+}
 
 impl Interface {
     pub fn new() -> Self {
         Self {
-            info_pane: InfoPane,
+            info_pane: InfoPane {
+                fps: 0.0,
+                checkpoint_fps_frame: 0,
+                checkpoint_fps_time: Instant::now(),
+            },
         }
     }
 
@@ -28,14 +38,27 @@ impl Interface {
 
 impl InfoPane {
     fn ui(&mut self, ui: &mut egui::Ui, globals: &mut app::Globals) {
+        if self.checkpoint_fps_time.elapsed().as_secs_f32() > 0.2 {
+            let frames = globals.timing.frame - self.checkpoint_fps_frame;
+            self.fps = (frames) as f32 / self.checkpoint_fps_time.elapsed().as_secs_f32();
+            self.checkpoint_fps_time = Instant::now();
+            self.checkpoint_fps_frame = globals.timing.frame;
+        }
+
         draw_section(ui, "Timing", |ui| {
             ui.label("FPS");
-            ui.label(egui::RichText::new(format!("{:.2}", globals.timing.avs_fps)).monospace());
+            ui.label(egui::RichText::new(format!("{:.2}", self.fps)).monospace());
 
             ui.end_row();
 
             ui.label("Time");
-            ui.label(egui::RichText::new(format!("{:.2}", globals.timing.time)).monospace());
+            ui.label(
+                egui::RichText::new(format!(
+                    "{:.2}",
+                    globals.timing.start_time.elapsed().as_secs_f32()
+                ))
+                .monospace(),
+            );
         });
     }
 }

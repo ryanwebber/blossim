@@ -14,7 +14,7 @@ use winit::{
 async fn run() -> Result<(), String> {
     let event_loop = EventLoop::new();
     let window = WindowBuilder::new()
-        .with_title("Etho")
+        .with_title("Blossim")
         .with_inner_size(LogicalSize {
             width: 960,
             height: 540,

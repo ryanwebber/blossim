@@ -1,10 +1,15 @@
+use std::time::{Duration, Instant};
+
+use rand::Rng;
 use wgpu::util::DeviceExt;
 use winit::{event::WindowEvent, window::Window};
 
 use crate::{
     gui, pipeline,
-    storage::{self, Storable},
+    storage::{self, Agent, Storable},
 };
+
+const NUM_AGENTS: usize = 320;
 
 const QUAD_VERTICIES: &[storage::Vertex] = &[
     storage::Vertex {
@@ -35,17 +40,15 @@ pub struct State {
     config: wgpu::SurfaceConfiguration,
     size: winit::dpi::PhysicalSize<u32>,
     pipelines: Pipelines,
-    compute_data: ComputeData,
-    render_data: RenderData,
+    pipeline_data: PipelineData,
     gui_layer: GuiLayer,
 }
 
 pub struct Timing {
-    pub time: f32,
-    pub avs_fps: f32,
-    pub reference_time: std::time::Instant,
-    pub last_checkpoint: std::time::Instant,
-    pub frames_since_last_checkpoint: usize,
+    pub time: Instant,
+    pub time_since_last_frame: Duration,
+    pub start_time: Instant,
+    pub frame: usize,
 }
 
 pub struct Globals {
@@ -53,17 +56,16 @@ pub struct Globals {
 }
 
 pub struct Pipelines {
-    compute: pipeline::compute::ComputePipeline,
+    diffuse: pipeline::compute::ComputePipeline,
+    simulation: pipeline::compute::ComputePipeline,
     render: pipeline::render::RenderPipeline,
 }
 
-pub struct RenderData {
+pub struct PipelineData {
     vertex_buffer: wgpu::Buffer,
     index_buffer: wgpu::Buffer,
-}
-
-pub struct ComputeData {
     globals_buffer: wgpu::Buffer,
+    agents_buffer: wgpu::Buffer,
     render_texture: wgpu::TextureView,
 }
 
@@ -83,14 +85,23 @@ impl State {
             timing: {
                 let now = std::time::Instant::now();
                 Timing {
-                    time: 0.0,
-                    avs_fps: 0.0,
-                    reference_time: now,
-                    last_checkpoint: now,
-                    frames_since_last_checkpoint: 0,
+                    time: now,
+                    start_time: now,
+                    time_since_last_frame: Duration::ZERO,
+                    frame: 0,
                 }
             },
         };
+
+        let agents: Vec<storage::Agent> = (0..NUM_AGENTS)
+            .map(|_| Agent {
+                position: glam::f32::Vec2 {
+                    x: rand::random::<f32>() * (size.width as f32),
+                    y: rand::random::<f32>() * (size.height as f32),
+                },
+                velocity: random_unit_circle(),
+            })
+            .collect();
 
         // Backends::all => Vulkan + Metal + DX12 + Browser WebGPU
         let instance = wgpu::Instance::new(wgpu::InstanceDescriptor {
@@ -146,11 +157,12 @@ impl State {
         surface.configure(&device, &config);
 
         let pipelines = Pipelines {
-            compute: pipeline::compute::ComputePipeline::new(&device),
+            diffuse: pipeline::compute::ComputePipeline::diffuse(&device),
+            simulation: pipeline::compute::ComputePipeline::simulation(&device),
             render: pipeline::render::RenderPipeline::new(&device, surface_format),
         };
 
-        let render_data = RenderData {
+        let pipeline_data = PipelineData {
             vertex_buffer: {
                 let bytes = bytemuck::cast_slice(QUAD_VERTICIES);
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
@@ -167,9 +179,6 @@ impl State {
                     usage: wgpu::BufferUsages::INDEX,
                 })
             },
-        };
-
-        let compute_data = ComputeData {
             globals_buffer: {
                 device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
                     label: Some("Globals buffer"),
@@ -179,6 +188,16 @@ impl State {
                         &uniform.into_bytes()
                     },
                     usage: wgpu::BufferUsages::UNIFORM | wgpu::BufferUsages::COPY_DST,
+                })
+            },
+            agents_buffer: {
+                device.create_buffer_init(&wgpu::util::BufferInitDescriptor {
+                    label: Some("Agents buffer"),
+                    contents: {
+                        let buffer = storage::Buffer(&agents);
+                        &buffer.into_bytes()
+                    },
+                    usage: wgpu::BufferUsages::STORAGE | wgpu::BufferUsages::COPY_DST,
                 })
             },
             render_texture: {
@@ -223,8 +242,7 @@ impl State {
             config,
             size,
             pipelines,
-            render_data,
-            compute_data,
+            pipeline_data,
             gui_layer,
         }
     }
@@ -277,16 +295,12 @@ impl State {
     pub fn update(&mut self) {}
 
     pub fn render(&mut self, window: &Window) -> Result<(), wgpu::SurfaceError> {
-        self.globals.timing.time = self.globals.timing.reference_time.elapsed().as_secs_f32();
-        self.globals.timing.frames_since_last_checkpoint += 1;
-        if self.globals.timing.last_checkpoint.elapsed().as_secs_f32() >= 0.25 {
-            self.globals.timing.avs_fps = {
-                let frame_count = self.globals.timing.frames_since_last_checkpoint;
-                (frame_count as f32) / self.globals.timing.last_checkpoint.elapsed().as_secs_f32()
-            };
-
-            self.globals.timing.frames_since_last_checkpoint = 0;
-            self.globals.timing.last_checkpoint = std::time::Instant::now();
+        {
+            let now = std::time::Instant::now();
+            let prev_time = self.globals.timing.time;
+            self.globals.timing.time = now;
+            self.globals.timing.time_since_last_frame = now - prev_time;
+            self.globals.timing.frame += 1;
         }
 
         let output = self.surface.get_current_texture()?;
@@ -320,26 +334,26 @@ impl State {
             encoder.copy_buffer_to_buffer(
                 &globals_buffer,
                 0,
-                &self.compute_data.globals_buffer,
+                &self.pipeline_data.globals_buffer,
                 0,
                 bytes.len() as wgpu::BufferAddress,
             );
         }
 
-        // Compute pass
+        // Diffuse pass
         {
             let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
-                label: Some("Compute bind group"),
-                layout: &self.pipelines.compute.bind_group_layout,
+                label: Some("Diffuse bind group"),
+                layout: &self.pipelines.diffuse.bind_group_layout,
                 entries: &[
                     wgpu::BindGroupEntry {
                         binding: 0,
-                        resource: self.compute_data.globals_buffer.as_entire_binding(),
+                        resource: self.pipeline_data.globals_buffer.as_entire_binding(),
                     },
                     wgpu::BindGroupEntry {
                         binding: 2,
                         resource: wgpu::BindingResource::TextureView(
-                            &self.compute_data.render_texture,
+                            &self.pipeline_data.render_texture,
                         ),
                     },
                 ],
@@ -347,12 +361,46 @@ impl State {
 
             {
                 let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
-                    label: Some("Compute pass"),
+                    label: Some("Diffuse pass"),
                 });
 
-                compute_pass.set_pipeline(&self.pipelines.compute.pipeline);
+                compute_pass.set_pipeline(&self.pipelines.diffuse.pipeline);
                 compute_pass.set_bind_group(0, &bind_group, &[]);
                 compute_pass.dispatch_workgroups(self.size.width, self.size.height, 1)
+            }
+        }
+
+        // Simulation pass
+        {
+            let bind_group = self.device.create_bind_group(&wgpu::BindGroupDescriptor {
+                label: Some("Simulation bind group"),
+                layout: &self.pipelines.simulation.bind_group_layout,
+                entries: &[
+                    wgpu::BindGroupEntry {
+                        binding: 0,
+                        resource: self.pipeline_data.globals_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 1,
+                        resource: self.pipeline_data.agents_buffer.as_entire_binding(),
+                    },
+                    wgpu::BindGroupEntry {
+                        binding: 2,
+                        resource: wgpu::BindingResource::TextureView(
+                            &self.pipeline_data.render_texture,
+                        ),
+                    },
+                ],
+            });
+
+            {
+                let mut compute_pass = encoder.begin_compute_pass(&wgpu::ComputePassDescriptor {
+                    label: Some("Simulation pass"),
+                });
+
+                compute_pass.set_pipeline(&self.pipelines.simulation.pipeline);
+                compute_pass.set_bind_group(0, &bind_group, &[]);
+                compute_pass.dispatch_workgroups(NUM_AGENTS as u32, 1, 1)
             }
         }
 
@@ -363,7 +411,9 @@ impl State {
                 layout: &self.pipelines.render.bind_group_layout,
                 entries: &[wgpu::BindGroupEntry {
                     binding: 0,
-                    resource: wgpu::BindingResource::TextureView(&self.compute_data.render_texture),
+                    resource: wgpu::BindingResource::TextureView(
+                        &self.pipeline_data.render_texture,
+                    ),
                 }],
             });
 
@@ -391,9 +441,9 @@ impl State {
 
                 render_pass.set_pipeline(&self.pipelines.render.pipeline);
                 render_pass.set_bind_group(0, &bind_group, &[]);
-                render_pass.set_vertex_buffer(0, self.render_data.vertex_buffer.slice(..));
+                render_pass.set_vertex_buffer(0, self.pipeline_data.vertex_buffer.slice(..));
                 render_pass.set_index_buffer(
-                    self.render_data.index_buffer.slice(..),
+                    self.pipeline_data.index_buffer.slice(..),
                     wgpu::IndexFormat::Uint32,
                 );
 
@@ -472,10 +522,22 @@ impl State {
     }
 }
 
+fn random_unit_circle() -> glam::f32::Vec2 {
+    let mut rng = rand::thread_rng();
+    let theta = rng.gen_range(0.0..std::f32::consts::TAU);
+    glam::f32::vec2(theta.cos(), theta.sin())
+}
+
+impl Timing {
+    pub fn dt(&self) -> f32 {
+        self.time_since_last_frame.as_secs_f32()
+    }
+}
+
 impl From<&Globals> for storage::Globals {
     fn from(globals: &Globals) -> Self {
         Self {
-            time: globals.timing.time,
+            dt: globals.timing.dt(),
         }
     }
 }
