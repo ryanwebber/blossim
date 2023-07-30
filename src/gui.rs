@@ -55,7 +55,7 @@ impl InfoPane {
             ui.label(
                 egui::RichText::new(format!(
                     "{:.2}",
-                    globals.timing.start_time.elapsed().as_secs_f32()
+                    (globals.timing.time - globals.timing.start_time).as_secs_f32()
                 ))
                 .monospace(),
             );

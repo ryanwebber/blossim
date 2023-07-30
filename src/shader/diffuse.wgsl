@@ -26,11 +26,11 @@ fn main(
         f32(g_invocation_id.y) / f32(dimensions.y)
     );
 
-    var color = textureLoad(tex, g_invocation_id.xy).xyz;
+    var color = textureLoad(tex, g_invocation_id.xy);
 
     // Diffuse by averaging nearby pixels
 
-    var diffuse = vec3<f32>(0.0);
+    var diffuse = vec4<f32>(0.0);
     let diffuse_radius = 2;
     for (var i = -diffuse_radius; i <= diffuse_radius; i = i + 1) {
         for (var j = -diffuse_radius; j <= diffuse_radius; j = j + 1) {
@@ -39,7 +39,7 @@ fn main(
                 continue;
             }
 
-            diffuse += textureLoad(tex, sample).xyz;
+            diffuse += textureLoad(tex, sample);
         }
     }
 
@@ -51,8 +51,8 @@ fn main(
     // Apply dimming
 
     if globals.dt > 0.0 {
-        color = max(vec3<f32>(0.0), color - globals.dt * 0.4);
+        color = max(vec4<f32>(0.0), color - globals.dt * 0.4);
     }
 
-    textureStore(tex, g_invocation_id.xy, vec4<f32>(color, 1.0));
+    textureStore(tex, g_invocation_id.xy, color);
 }

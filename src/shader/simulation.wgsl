@@ -3,6 +3,7 @@
 
 struct Globals {
     dt: f32,
+    time: f32,
     work_group_size: u32,
 }
 
@@ -28,7 +29,7 @@ fn debug_point(p: vec2<f32>) {
     // textureStore(tex, ppos, vec4<f32>(0.0, 1.0, 0.0, 1.0));
 }
 
-fn sample(p: vec2<f32>) -> vec3<f32> {
+fn sample(p: vec2<f32>) -> f32 {
     let dimensions = textureDimensions(tex);
     let x = p.x;
     let y = p.y;
@@ -37,10 +38,10 @@ fn sample(p: vec2<f32>) -> vec3<f32> {
         clamp(0u, dimensions.y, u32(y))
     );
 
-    return textureLoad(tex, uv).xyz;
+    return textureLoad(tex, uv).w;
 }
 
-fn sample_area(p: vec2<f32>, radius: f32) -> vec3<f32> {
+fn sample_area(p: vec2<f32>, radius: f32) -> f32 {
     let dimensions = textureDimensions(tex);
     let x = p.x;
     let y = p.y;
@@ -50,7 +51,7 @@ fn sample_area(p: vec2<f32>, radius: f32) -> vec3<f32> {
     );
 
     let samples = i32(radius);
-    var sum = vec3<f32>(0.0, 0.0, 0.0);
+    var sum = 0.0;
     var num_samples = 0u;
     for (var i = -samples; i <= samples; i = i + 1) {
         for (var j = -samples; j <= samples; j = j + 1) {
@@ -63,15 +64,13 @@ fn sample_area(p: vec2<f32>, radius: f32) -> vec3<f32> {
                 continue;
             }
 
-            debug_point(vec2<f32>(f32(sample_uv.x), f32(sample_uv.y)));
-
             sum += sample(vec2<f32>(f32(sample_uv.x), f32(sample_uv.y)));
             num_samples = num_samples + 1u;
         }
     }
 
     if num_samples == 0u {
-        return vec3<f32>(0.0, 0.0, 0.0);
+        return sample(p);
     }
 
     return sum / f32(num_samples);
@@ -98,9 +97,9 @@ fn update(agent_idx: u32) {
 
     let angle = 0.8;
 
-    let left = sample_area(position + rotate(velocity, angle), 1.0).x;
-    let right = sample_area(position + rotate(velocity, -angle), 1.0).x;
-    let forward = sample_area(position + velocity, 1.0).x;
+    let left = sample_area(position + rotate(velocity, angle), 1.0);
+    let right = sample_area(position + rotate(velocity, -angle), 1.0);
+    let forward = sample_area(position + velocity, 1.0);
 
     if forward >= left && forward >= right {
         // Do nothing

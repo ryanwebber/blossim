@@ -9,7 +9,7 @@ use crate::{
     storage::{self, Agent, Storable},
 };
 
-const APPROXIMATE_NUM_AGENTS: usize = 60000;
+const APPROXIMATE_NUM_AGENTS: usize = 600000;
 
 const QUAD_VERTICIES: &[storage::Vertex] = &[
     storage::Vertex {
@@ -551,6 +551,7 @@ impl From<&Globals> for storage::Globals {
     fn from(globals: &Globals) -> Self {
         Self {
             dt: globals.timing.dt(),
+            time: (globals.timing.time - globals.timing.start_time).as_secs_f32(),
             work_group_size: globals.work_groups.x,
         }
     }
