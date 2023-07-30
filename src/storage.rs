@@ -67,6 +67,7 @@ where
 #[derive(ShaderType)]
 pub struct Globals {
     pub dt: f32,
+    pub work_group_size: u32,
 }
 
 #[derive(ShaderType)]

@@ -31,8 +31,9 @@ fn main(
     // Diffuse by averaging nearby pixels
 
     var diffuse = vec3<f32>(0.0);
-    for (var i = -1; i <= 1; i = i + 1) {
-        for (var j = -1; j <= 1; j = j + 1) {
+    let diffuse_radius = 2;
+    for (var i = -diffuse_radius; i <= diffuse_radius; i = i + 1) {
+        for (var j = -diffuse_radius; j <= diffuse_radius; j = j + 1) {
             var sample = vec2<i32>(g_invocation_id.xy) + vec2<i32>(i, j);
             if (sample.x < 0 || sample.x >= i32(dimensions.x) || sample.y < 0 || sample.y >= i32(dimensions.y)) {
                 continue;
@@ -42,14 +43,15 @@ fn main(
         }
     }
 
-    diffuse /= 9.0;
+    let diffuse_dimension = 2.0 * f32(diffuse_radius) + 1.0;
+    diffuse /= (diffuse_dimension * diffuse_dimension);
 
     color = mix(color, diffuse, globals.dt * 12.0);
 
     // Apply dimming
 
     if globals.dt > 0.0 {
-        color = max(vec3<f32>(0.0), color - globals.dt * 0.1);
+        color = max(vec3<f32>(0.0), color - globals.dt * 0.4);
     }
 
     textureStore(tex, g_invocation_id.xy, vec4<f32>(color, 1.0));

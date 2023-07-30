@@ -9,7 +9,7 @@ use crate::{
     storage::{self, Agent, Storable},
 };
 
-const NUM_AGENTS: usize = 320;
+const APPROXIMATE_NUM_AGENTS: usize = 60000;
 
 const QUAD_VERTICIES: &[storage::Vertex] = &[
     storage::Vertex {
@@ -53,6 +53,7 @@ pub struct Timing {
 
 pub struct Globals {
     pub timing: Timing,
+    pub work_groups: glam::UVec3,
 }
 
 pub struct Pipelines {
@@ -91,15 +92,23 @@ impl State {
                     frame: 0,
                 }
             },
+            work_groups: {
+                let x = (APPROXIMATE_NUM_AGENTS as f32).sqrt().ceil() as u32;
+                glam::UVec3::new(x, x, 1)
+            },
         };
 
-        let agents: Vec<storage::Agent> = (0..NUM_AGENTS)
+        let num_work_groups = globals.work_groups.x * globals.work_groups.y * globals.work_groups.z;
+
+        println!("Agents: {}, size: {}", num_work_groups, globals.work_groups);
+
+        let agents: Vec<storage::Agent> = (0..num_work_groups)
             .map(|_| Agent {
                 position: glam::f32::Vec2 {
                     x: rand::random::<f32>() * (size.width as f32),
                     y: rand::random::<f32>() * (size.height as f32),
                 },
-                velocity: random_unit_circle(),
+                velocity: random_unit_circle() * 32.0,
             })
             .collect();
 
@@ -400,7 +409,11 @@ impl State {
 
                 compute_pass.set_pipeline(&self.pipelines.simulation.pipeline);
                 compute_pass.set_bind_group(0, &bind_group, &[]);
-                compute_pass.dispatch_workgroups(NUM_AGENTS as u32, 1, 1)
+                compute_pass.dispatch_workgroups(
+                    self.globals.work_groups.x,
+                    self.globals.work_groups.y,
+                    self.globals.work_groups.z,
+                );
             }
         }
 
@@ -538,6 +551,7 @@ impl From<&Globals> for storage::Globals {
     fn from(globals: &Globals) -> Self {
         Self {
             dt: globals.timing.dt(),
+            work_group_size: globals.work_groups.x,
         }
     }
 }

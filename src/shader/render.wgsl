@@ -23,8 +23,8 @@ var tex: texture_storage_2d<rgba32float, read>;
 fn fs_main(in: VertexOutput) -> @location(0) vec4<f32> {
     let dimension = textureDimensions(tex);
     let tex_coords = vec2<u32>(
-        u32(in.uv.x * f32(dimension.x)),
-        u32(in.uv.y * f32(dimension.y)),
+        u32(in.uv.x * f32(dimension.x) / 1.0),
+        u32(in.uv.y * f32(dimension.y) / 1.0),
     );
 
     let color = textureLoad(tex, tex_coords);
