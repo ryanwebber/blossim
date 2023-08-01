@@ -105,10 +105,13 @@ impl State {
         let agents: Vec<storage::Agent> = (0..num_work_groups)
             .map(|_| Agent {
                 position: glam::f32::Vec2 {
-                    x: rand::random::<f32>() * (size.width as f32),
-                    y: rand::random::<f32>() * (size.height as f32),
-                },
-                velocity: random_unit_circle() * 32.0,
+                    x: size.width as f32,
+                    y: size.height as f32,
+                } * 0.5
+                    + random_in_unit_circle()
+                        * 0.33
+                        * f32::min(size.width as f32, size.height as f32),
+                velocity: random_unit_circle() * 24.0,
             })
             .collect();
 
@@ -539,6 +542,13 @@ fn random_unit_circle() -> glam::f32::Vec2 {
     let mut rng = rand::thread_rng();
     let theta = rng.gen_range(0.0..std::f32::consts::TAU);
     glam::f32::vec2(theta.cos(), theta.sin())
+}
+
+fn random_in_unit_circle() -> glam::f32::Vec2 {
+    let mut rng = rand::thread_rng();
+    let theta = rng.gen_range(0.0..std::f32::consts::TAU);
+    let r = rng.gen_range(0.0..1.0);
+    glam::f32::vec2(r * theta.cos(), r * theta.sin())
 }
 
 impl Timing {

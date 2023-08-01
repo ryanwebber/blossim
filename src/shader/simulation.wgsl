@@ -29,42 +29,35 @@ fn debug_point(p: vec2<f32>) {
     // textureStore(tex, ppos, vec4<f32>(0.0, 1.0, 0.0, 1.0));
 }
 
-fn sample(p: vec2<f32>) -> f32 {
+fn warp_clamp(point: vec2<f32>) -> vec2<f32> {
+    var p = point;
     let dimensions = textureDimensions(tex);
-    let x = p.x;
-    let y = p.y;
-    let uv = vec2<u32>(
-        clamp(0u, dimensions.x, u32(x)),
-        clamp(0u, dimensions.y, u32(y))
-    );
+    p.x = select(p.x, 0.0, p.x >= f32(dimensions.x));
+    p.x = select(p.x, f32(dimensions.x), p.x < 0.0);
+    p.y = select(p.y, 0.0, p.y >= f32(dimensions.y));
+    p.y = select(p.y, f32(dimensions.y), p.y < 0.0);
+    return p;
+}
 
+fn sample(p: vec2<f32>) -> f32 {
+    var p2 = warp_clamp(p);
+    var uv = vec2<u32>(u32(p2.x), u32(p2.y));
     return textureLoad(tex, uv).w;
 }
 
 fn sample_area(p: vec2<f32>, radius: f32) -> f32 {
-    let dimensions = textureDimensions(tex);
-    let x = p.x;
-    let y = p.y;
-    let uv = vec2<i32>(
-        clamp(0, i32(dimensions.x), i32(x)),
-        clamp(0, i32(dimensions.y), i32(y))
-    );
-
     let samples = i32(radius);
     var sum = 0.0;
     var num_samples = 0u;
     for (var i = -samples; i <= samples; i = i + 1) {
         for (var j = -samples; j <= samples; j = j + 1) {
-            let sample_uv = vec2<u32>(
-                u32(clamp(0, i32(dimensions.x), uv.x + i)),
-                u32(clamp(0, i32(dimensions.y), uv.y + j))
-            );
-
+            let offset = vec2<f32>(f32(i), f32(j));
+            let sample_uv = p + offset;
             if i * i + j * j > samples * samples {
                 continue;
             }
 
-            sum += sample(vec2<f32>(f32(sample_uv.x), f32(sample_uv.y)));
+            sum += sample(sample_uv);
             num_samples = num_samples + 1u;
         }
     }
@@ -83,6 +76,12 @@ fn rotate(v: vec2<f32>, angle: f32) -> vec2<f32> {
         v.x * c - v.y * s,
         v.x * s + v.y * c
     );
+}
+
+fn hsv2rgb(c: vec3<f32>) -> vec3<f32> {
+    let k = vec4<f32>(1.0, 2.0 / 3.0, 1.0 / 3.0, 3.0);
+    let p = abs(fract(c.xxx + k.xyz) * 6.0 - k.www);
+    return c.z * mix(k.xxx, saturate(p - k.xxx), c.y);
 }
 
 // ======================== Update ========================
@@ -104,29 +103,18 @@ fn update(agent_idx: u32) {
     if forward >= left && forward >= right {
         // Do nothing
     } else if left > right {
-        velocity = rotate(velocity, 0.05);
+        velocity = rotate(velocity, 0.01);
     } else {
-        velocity = rotate(velocity, -0.05);
+        velocity = rotate(velocity, -0.01);
     }
 
     // Update agent position
     position += velocity * globals.dt * 4.0;
-
-    // Reverse velocity if agent hits a wall
-    if position.x <= 0.0 || position.x >= f32(dimensions.x) {
-        velocity.x = -velocity.x;
-    }
-
-    if position.y <= 0.0 || position.y >= f32(dimensions.y) {
-        velocity.y = -velocity.y;
-    }
+    position = warp_clamp(position);
 
     // Store new agent position and velocity
     (*agent).velocity = velocity;
-    (*agent).position = vec2<f32>(
-        clamp(position.x, 0.0, f32(dimensions.x)),
-        clamp(position.y, 0.0, f32(dimensions.y))
-    );
+    (*agent).position = position;
 }
 
 // ========================= Main =========================
@@ -146,7 +134,12 @@ fn main(
     @builtin(global_invocation_id) g_invocation_id: vec3<u32>
 ) {
     let dimensions = textureDimensions(tex);
+    let num_agents = globals.work_group_size * globals.work_group_size;
     let agent_idx = g_invocation_id.x + g_invocation_id.y * globals.work_group_size;
+
+    // Update the agent
+    update(agent_idx);
+
     let agent = &agents_buffer.agents[agent_idx];
 
     let pixel_position = vec2<u32>(
@@ -154,9 +147,10 @@ fn main(
         u32((*agent).position.y)
     );
 
-    // Update the agent
-    update(agent_idx);
+    let hue = 0.2 * f32(agent_idx) / f32(num_agents) + 0.3;
+    let hsv = vec3<f32>(hue, 1.0, 0.8);
+    let color = hsv2rgb(hsv);
 
     // Write the agent to the texture
-    textureStore(tex, pixel_position, vec4<f32>(1.0, 0.0, 0.0, 1.0));
+    textureStore(tex, pixel_position, vec4<f32>(color, 1.0));
 }

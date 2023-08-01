@@ -46,12 +46,12 @@ fn main(
     let diffuse_dimension = 2.0 * f32(diffuse_radius) + 1.0;
     diffuse /= (diffuse_dimension * diffuse_dimension);
 
-    color = mix(color, diffuse, globals.dt * 12.0);
+    color = mix(color, diffuse, globals.dt * 48.0);
 
     // Apply dimming
 
     if globals.dt > 0.0 {
-        color = max(vec4<f32>(0.0), color - globals.dt * 0.4);
+        color = max(vec4<f32>(0.0), color - globals.dt * 1.0);
     }
 
     textureStore(tex, g_invocation_id.xy, color);
